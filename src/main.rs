@@ -33,7 +33,8 @@ struct CalcMem {
     current: Token,
 }
 
-
+/// Takes a valid string and returns a vector holding token types and their
+/// indexes in the string in a TokenIndexes enum.
 fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
     let mut indexes: Vec<TokenIndexes> = Vec::new();
 
@@ -68,7 +69,7 @@ fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
     Ok(indexes)
 }
 
-
+/// Takes a Token vector in infix form and returns a Token vector in postfix form
 fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
 
     let mut calc_mem = CalcMem {
@@ -146,7 +147,7 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
     calc_mem.main_stack
 }
 
-
+/// Takes a string and returns a Result holding a Token vector in postfix form
 fn tokenize(input: &String) -> Result<Vec<Token>, &str> {
 
     let mut indexes = match index_tokens(&input) {
