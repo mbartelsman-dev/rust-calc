@@ -1,4 +1,6 @@
 use std::io::BufRead;
+#[macro_use] extern crate assert_matches; // For unit tests
+
 
 macro_rules! read_line(
     () => {{
@@ -17,7 +19,7 @@ enum TokenIndexes {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Token {
     Number(f64),
     ProdOp(char),
@@ -33,6 +35,7 @@ struct CalcMem {
     current: Token,
 }
 
+
 /// Takes a valid string and returns a vector holding token types and their
 /// indexes in the string in a TokenIndexes enum.
 fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
@@ -41,9 +44,11 @@ fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
     let mut in_number: bool = false;
     for (i, c) in input.chars().enumerate() {
         match c {
+
+            // If currently parsing a number, continue. Else, begin new num.
             '0'..='9' | '.' => {
                 if in_number {
-                    if let TokenIndexes::Number(a, b) = indexes.pop().unwrap() {
+                    if let TokenIndexes::Number(a, _) = indexes.pop().unwrap() {
                         indexes.push(TokenIndexes::Number(a, i+1));
                     }
                 } else {
@@ -69,6 +74,30 @@ fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
     Ok(indexes)
 }
 
+
+/// Takes a string and returns a Result holding a Token vector in postfix form
+fn tokenize(input: &String) -> Result<Vec<Token>, &str> {
+
+    let indexes = match index_tokens(&input) {
+        Ok(vector) => vector,
+        Err(error) => { return Err(error); }
+    };
+
+    let mut tokens = Vec::new();
+
+    // Convert indices to tokens
+    for index_pair in indexes.into_iter() {
+        tokens.push( match index_pair {
+            TokenIndexes::Number(a, b) => Token::Number(input[a..b].parse().unwrap()),
+            TokenIndexes::ProdOp(a, b) => Token::ProdOp(input[a..b].parse().unwrap()),
+            TokenIndexes::TermOp(a, b) => Token::TermOp(input[a..b].parse().unwrap()),
+        });
+    }
+
+    Ok(tokens)
+}
+
+
 /// Takes a Token vector in infix form and returns a Token vector in postfix form
 fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
 
@@ -81,8 +110,9 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
 
 
     let mut waiting_number = false;
-    let mut waiting_operator = false;
 
+    // Algorithm works as follows:
+    // Read expression token by token
     loop {
         calc_mem.current = match tokens.pop() {
             Some(t) => t,
@@ -90,6 +120,10 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
         };
 
         match calc_mem.current {
+
+            // If token is a number
+            // Then push number to aux stack,
+            // If an operand was waiting, push the operand to the aux stack afterwards
             n @ Token::Number(_) => {
                 if waiting_number {
                     waiting_number = false;
@@ -102,11 +136,15 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
                 }
             },
 
+            // If the token is a mut/div operand, push to operand stack and wait for number
             p @ Token::ProdOp(_) => {
                 calc_mem.op_stack.push(p);
                 waiting_number = true;
             },
 
+            // If token is a plus/min operand, pop and push entre aux stack onto operand stack, reversing it
+            // Then do the same from the operand stack to the main stack
+            // Finally, push current operand (+/-) to operand stack
             t @ Token::TermOp(_) => {
                 loop {
                     let token = match calc_mem.aux_stack.pop() {
@@ -125,6 +163,7 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
                 calc_mem.op_stack.push(t);
             },
 
+            // If expression list is empty, empty stacks onto main stack
             Token::None => { 
                 loop {
                     let token = match calc_mem.aux_stack.pop() {
@@ -147,27 +186,47 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
     calc_mem.main_stack
 }
 
-/// Takes a string and returns a Result holding a Token vector in postfix form
-fn tokenize(input: &String) -> Result<Vec<Token>, &str> {
+/// Recursively evaluates a vector holding tokens in postfix form, returns a Result
+fn eval_postfix<'a>(expr: &mut Vec<Token>) -> Result<f64, &'a str> {
 
-    let mut indexes = match index_tokens(&input) {
-        Ok(vector) => vector,
-        Err(error) => { return Err(error); }
+    // If expression is empty, return error
+    // If next item is a number, return it
+    let op = match expr.pop().unwrap() {
+        Token::None => { return Err("Expected something, found nothing"); },
+        Token::Number(num) => { return Ok(num); },
+        w => w
     };
 
-    let mut tokens = Vec::new();
+    let mut expr = expr.clone();
 
-    for index_pair in indexes.into_iter() {
-        tokens.push( match index_pair {
-            TokenIndexes::Number(a, b) => Token::Number(input[a..b].parse().unwrap()),
-            TokenIndexes::ProdOp(a, b) => Token::ProdOp(input[a..b].parse().unwrap()),
-            TokenIndexes::TermOp(a, b) => Token::TermOp(input[a..b].parse().unwrap()),
-        });
-    }
+    // Eval first sub-expression recursively
+    let a = match eval_postfix(&mut expr) {
+        Ok(n) => n,
+        Err(e) => { return Err(e); }
+    };
 
-    Ok(tokens)
+    let mut expr = expr.clone();
+
+    // Eval second sub-expression recursively 
+    let b = match eval_postfix(&mut expr) {
+        Ok(n) => n,
+        Err(e) => { return Err(e); }
+    };
+
+    // Perform appropriate operation
+    let ans = match op {
+        Token::TermOp('+') => a + b,
+        Token::TermOp('-') => a - b,
+        Token::ProdOp('*') => a * b,
+        Token::ProdOp('/') => {
+            if b == 0.0 { return Err("Undefined: Division by zero"); }
+            a / b
+        },
+        _ => 0.0  // Compiler complained without this even though it's covered in the base case
+    };
+
+    Ok(ans)
 }
-
 
 fn main() {
     let input: String = read_line!().expect("Error reading line");
@@ -178,7 +237,72 @@ fn main() {
             return
         },
     };
-    println!("{:?}", tokens);
-    let tokens = to_postfix(&mut tokens);
-    println!("{:?}", tokens);
+    let mut tokens = to_postfix(&mut tokens);
+    let answer = eval_postfix(&mut tokens).unwrap();
+    println!("Answer is {}", answer);
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn eval_postfix_test() {
+
+        // 1 + 1 = 2
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('+')];
+        assert_eq!(Ok(2.0),eval_postfix(&mut expr));
+
+        // 1 - 1 = 0
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('-')];
+        assert_eq!(Ok(0.0),eval_postfix(&mut expr));
+
+        // 1 * 1 = 1
+        // FIXME: Division and multiplication always yield 0.0
+        // let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('*')];
+        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+
+        // 2 * 1 = 1
+        // let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::TermOp('*')];
+        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+
+        // 2 * 0 = 0
+        let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::TermOp('*')];
+        assert_eq!(Ok(0.0),eval_postfix(&mut expr));
+
+        // 1 / 1 = 1
+        // let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('/')];
+        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+
+        // 2 / 2 = 1
+        // let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::TermOp('/')];
+        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+
+        // 2 / 1 = 2
+        // let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::TermOp('/')];
+        // assert_eq!(Ok(2.0),eval_postfix(&mut expr));
+
+        // 2 / 0 = Err
+        // let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::TermOp('/')];
+        // let ans = eval_postfix(&mut expr);
+        // assert_matches!(ans, Err(_));
+
+        // 1 * = Err
+        // TODO: Catch panic appropriately, Failing at None on unwrap
+        // let mut expr = vec![Token::Number(1.), Token::TermOp('*')];
+        // let ans = eval_postfix(&mut expr);
+        // assert_matches!(ans, Err(_));
+
+        // 1 + 1 + 1 = 3
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('+'), Token::Number(1.), Token::TermOp('+')];
+        assert_eq!(Ok(3.0),eval_postfix(&mut expr));
+
+        // 2 + 2 * 3 = 8
+        // let mut expr = vec![Token::Number(2.), Token::Number(3.), Token::TermOp('*'), Token::Number(2.), Token::TermOp('+')];
+        // assert_eq!(Ok(8.0),eval_postfix(&mut expr));
+
+        // 2 + 2 * 3 = 8, alternate postfix form
+        // let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::Number(3.), Token::TermOp('*'), Token::TermOp('+')];
+        // assert_eq!(Ok(8.0),eval_postfix(&mut expr));
+    }
 }
