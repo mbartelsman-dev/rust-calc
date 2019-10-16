@@ -6,7 +6,8 @@ The objective of this project is to serve as a valuable learning experience in t
 
 ## To do
 
-- [ ] Implement evaluation
+- [X] Implement evaluation
+  - [ ] Fix issue [#1](/../../issues/1)
 - [ ] Implement parentheses parsing
 - [ ] Implement basic algebraic operators
   - [ ] Negative sign
