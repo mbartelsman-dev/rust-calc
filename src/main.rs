@@ -239,9 +239,8 @@ fn main() {
         },
     };
     let mut tokens = to_postfix(&mut tokens);
-    println!("{:?}", tokens);
     let answer = eval_postfix(&mut tokens).unwrap();
-    println!("Answer is {}", answer);
+    println!("= {}", answer);
 }
 
 #[cfg(test)]
