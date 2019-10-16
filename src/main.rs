@@ -187,25 +187,24 @@ fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
 }
 
 /// Recursively evaluates a vector holding tokens in postfix form, returns a Result
-fn eval_postfix<'a>(expr: &mut Vec<Token>) -> Result<f64, &'a str> {
+fn eval_postfix<'a>(mut expr: &mut Vec<Token>) -> Result<f64, &'a str> {
 
     // If expression is empty, return error
     // If next item is a number, return it
-    let op = match expr.pop().unwrap() {
-        Token::None => { return Err("Expected something, found nothing"); },
-        Token::Number(num) => { return Ok(num); },
-        w => w
+    let op = match expr.pop() {
+        Some(e) => match e {
+            Token::None => { return Err("Expected something, found nothing"); },
+            Token::Number(num) => { return Ok(num); },
+            w => w
+        }
+        None => { return Err("Expected something, found nothing"); }
     };
-
-    let mut expr = expr.clone();
 
     // Eval first sub-expression recursively
     let a = match eval_postfix(&mut expr) {
         Ok(n) => n,
         Err(e) => { return Err(e); }
     };
-
-    let mut expr = expr.clone();
 
     // Eval second sub-expression recursively 
     let b = match eval_postfix(&mut expr) {
@@ -217,11 +216,13 @@ fn eval_postfix<'a>(expr: &mut Vec<Token>) -> Result<f64, &'a str> {
     let ans = match op {
         Token::TermOp('+') => a + b,
         Token::TermOp('-') => a - b,
+        Token::TermOp(_) => { return Err("Invalid Token"); }
         Token::ProdOp('*') => a * b,
         Token::ProdOp('/') => {
             if b == 0.0 { return Err("Undefined: Division by zero"); }
             a / b
         },
+        Token::ProdOp(_) => { return Err("Invalid Token"); }
         _ => 0.0  // Compiler complained without this even though it's covered in the base case
     };
 
@@ -238,6 +239,7 @@ fn main() {
         },
     };
     let mut tokens = to_postfix(&mut tokens);
+    println!("{:?}", tokens);
     let answer = eval_postfix(&mut tokens).unwrap();
     println!("Answer is {}", answer);
 }
@@ -258,51 +260,82 @@ mod unit_tests {
         assert_eq!(Ok(0.0),eval_postfix(&mut expr));
 
         // 1 * 1 = 1
-        // FIXME: Division and multiplication always yield 0.0
-        // let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('*')];
-        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::ProdOp('*')];
+        assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
-        // 2 * 1 = 1
-        // let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::TermOp('*')];
-        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+        // 2 * 1 = 2
+        let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::ProdOp('*')];
+        assert_eq!(Ok(2.0),eval_postfix(&mut expr));
 
         // 2 * 0 = 0
-        let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::TermOp('*')];
+        let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::ProdOp('*')];
         assert_eq!(Ok(0.0),eval_postfix(&mut expr));
 
         // 1 / 1 = 1
-        // let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('/')];
-        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::ProdOp('/')];
+        assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
         // 2 / 2 = 1
-        // let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::TermOp('/')];
-        // assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+        let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::ProdOp('/')];
+        assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
         // 2 / 1 = 2
-        // let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::TermOp('/')];
-        // assert_eq!(Ok(2.0),eval_postfix(&mut expr));
+        let mut expr = vec![Token::Number(1.), Token::Number(2.), Token::ProdOp('/')];
+        assert_eq!(Ok(2.0),eval_postfix(&mut expr));
 
         // 2 / 0 = Err
-        // let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::TermOp('/')];
-        // let ans = eval_postfix(&mut expr);
-        // assert_matches!(ans, Err(_));
+        let mut expr = vec![Token::Number(0.), Token::Number(2.), Token::ProdOp('/')];
+        let ans = eval_postfix(&mut expr);
+        assert_matches!(ans, Err(_));
 
         // 1 * = Err
-        // TODO: Catch panic appropriately, Failing at None on unwrap
-        // let mut expr = vec![Token::Number(1.), Token::TermOp('*')];
-        // let ans = eval_postfix(&mut expr);
-        // assert_matches!(ans, Err(_));
+        let mut expr = vec![Token::Number(1.), Token::ProdOp('*')];
+        let ans = eval_postfix(&mut expr);
+        assert_matches!(ans, Err(_));
 
         // 1 + 1 + 1 = 3
         let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('+'), Token::Number(1.), Token::TermOp('+')];
         assert_eq!(Ok(3.0),eval_postfix(&mut expr));
 
-        // 2 + 2 * 3 = 8
-        // let mut expr = vec![Token::Number(2.), Token::Number(3.), Token::TermOp('*'), Token::Number(2.), Token::TermOp('+')];
-        // assert_eq!(Ok(8.0),eval_postfix(&mut expr));
+        // Test forms
+        // 4 + 2 * 3 = 8
+        let mut expr = vec![
+            Token::Number(4.),
+            Token::Number(2.),
+            Token::Number(3.),
+            Token::ProdOp('*'),
+            Token::TermOp('+')
+        ];
+        assert_eq!(Ok(10.0),eval_postfix(&mut expr));
 
-        // 2 + 2 * 3 = 8, alternate postfix form
-        // let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::Number(3.), Token::TermOp('*'), Token::TermOp('+')];
-        // assert_eq!(Ok(8.0),eval_postfix(&mut expr));
+        // 4 + 2 * 3 = 8
+        let mut expr = vec![
+            Token::Number(4.),
+            Token::Number(3.),
+            Token::Number(2.),
+            Token::ProdOp('*'),
+            Token::TermOp('+')
+        ];
+        assert_eq!(Ok(10.0),eval_postfix(&mut expr));
+
+        // 4 + 2 * 3 = 8
+        let mut expr = vec![
+            Token::Number(2.),
+            Token::Number(3.),
+            Token::ProdOp('*'),
+            Token::Number(4.),
+            Token::TermOp('+')
+        ];
+        assert_eq!(Ok(10.0),eval_postfix(&mut expr));
+
+        // 4 + 2 * 3 = 8
+        let mut expr = vec![
+            Token::Number(3.),
+            Token::Number(2.),
+            Token::ProdOp('*'),
+            Token::Number(4.),
+            Token::TermOp('+')
+        ];
+        assert_eq!(Ok(10.0),eval_postfix(&mut expr));
     }
 }
