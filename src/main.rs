@@ -14,17 +14,24 @@ macro_rules! read_line(
 
 enum TokenIndexes {
     Number(usize, usize),
-    ProdOp(usize, usize),
-    TermOp(usize, usize),
+    Operator(usize, usize),
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum Token {
     Number(f64),
-    ProdOp(char),
-    TermOp(char),
+    Operator(Operator),
     None,
+}
+
+
+#[derive(Debug, Clone, Copy)]
+enum Operator {
+    Add,
+    Sub,
+    Mul,
+    Div,
 }
 
 
@@ -56,12 +63,8 @@ fn index_tokens(input: &String) -> Result<Vec<TokenIndexes>, &str> {
                 }
                 in_number = true;
             },
-            '*' | '/' => {
-                indexes.push(TokenIndexes::ProdOp(i, i+1));
-                in_number = false;
-            },
-            '+' | '-' => {
-                indexes.push(TokenIndexes::TermOp(i, i+1));
+            '*' | '/' | '+' | '-' => {
+                indexes.push(TokenIndexes::Operator(i, i+1));
                 in_number = false;
             },
             ' ' => {
@@ -87,11 +90,20 @@ fn tokenize(input: &String) -> Result<Vec<Token>, &str> {
 
     // Convert indices to tokens
     for index_pair in indexes.into_iter() {
-        tokens.push( match index_pair {
-            TokenIndexes::Number(a, b) => Token::Number(input[a..b].parse().unwrap()),
-            TokenIndexes::ProdOp(a, b) => Token::ProdOp(input[a..b].parse().unwrap()),
-            TokenIndexes::TermOp(a, b) => Token::TermOp(input[a..b].parse().unwrap()),
-        });
+        tokens.push( 
+            match index_pair {
+                TokenIndexes::Number(a, b) => Token::Number(input[a..b].parse().unwrap()),
+                TokenIndexes::Operator(a, b) => {
+                    match input[a..b].parse().unwrap() {
+                        '+' => Token::Operator(Operator::Add),
+                        '-' => Token::Operator(Operator::Sub),
+                        '*' => Token::Operator(Operator::Mul),
+                        '/' => Token::Operator(Operator::Div),
+                        _ => unimplemented!(),
+                    }
+                }
+            }
+        );
     }
 
     Ok(tokens)
@@ -102,87 +114,86 @@ fn tokenize(input: &String) -> Result<Vec<Token>, &str> {
 fn to_postfix(tokens: &mut Vec<Token>) -> Vec<Token> {
 
     let mut calc_mem = CalcMem {
-        main_stack: Vec::new(),
-        aux_stack: Vec::new(),
-        op_stack: Vec::new(),
+        main_stack: Vec::with_capacity(3),
+        aux_stack: Vec::with_capacity(3),
+        op_stack: Vec::with_capacity(3),
         current: Token::None,
     };
-
 
     let mut waiting_number = false;
 
     // Algorithm works as follows:
     // Read expression token by token
-    loop {
-        calc_mem.current = match tokens.pop() {
-            Some(t) => t,
-            None => Token::None,
-        };
+    for token in tokens.iter().rev() {
+        calc_mem.current = *token;
 
         match calc_mem.current {
 
-            // If token is a number
-            // Then push number to aux stack,
-            // If an operand was waiting, push the operand to the aux stack afterwards
+            // When token is a number, push it to the auxiliary stack
+            // If an operator was waiting for it, push it as well.
             n @ Token::Number(_) => {
+                calc_mem.aux_stack.push(n);
+
                 if waiting_number {
                     waiting_number = false;
-                    calc_mem.aux_stack.push(n);
                     let op = calc_mem.op_stack.pop().unwrap();
                     calc_mem.aux_stack.push(op);
-                }
-                else {
-                    calc_mem.aux_stack.push(n);
                 }
             },
 
             // If the token is a mut/div operand, push to operand stack and wait for number
-            p @ Token::ProdOp(_) => {
-                calc_mem.op_stack.push(p);
-                waiting_number = true;
+            Token::Operator(op) => {
+                match op {
+
+                    // If token is an addition or subtraction operator,
+                    // then clear the auxiliary and operator stacks
+                    // and push the operator onto the operator stack.
+                    p @ Operator::Add | p @ Operator::Sub => {
+                        loop {
+                            let token = match calc_mem.aux_stack.pop() {
+                                Some(t) => t,
+                                None => { break; }
+                            };
+                            calc_mem.op_stack.push(token);
+                        }
+                        loop {
+                            let token = match calc_mem.op_stack.pop() {
+                                Some(t) => t,
+                                None => { break; }
+                            };
+                            calc_mem.main_stack.push(token);
+                        }
+                        calc_mem.op_stack.push(Token::Operator(p));
+                    },
+
+                    // If token is a multiplication or division operator,
+                    // push it onto the operator stack and wait for a number
+                    p @ Operator::Mul | p @ Operator::Div => {
+                        calc_mem.op_stack.push(Token::Operator(p));
+                        waiting_number = true;
+                    },
+                }
             },
 
-            // If token is a plus/min operand, pop and push entre aux stack onto operand stack, reversing it
-            // Then do the same from the operand stack to the main stack
-            // Finally, push current operand (+/-) to operand stack
-            t @ Token::TermOp(_) => {
-                loop {
-                    let token = match calc_mem.aux_stack.pop() {
-                        Some(t) => t,
-                        None => { break; }
-                    };
-                    calc_mem.op_stack.push(token);
-                }
-                loop {
-                    let token = match calc_mem.op_stack.pop() {
-                        Some(t) => t,
-                        None => { break; }
-                    };
-                    calc_mem.main_stack.push(token);
-                }
-                calc_mem.op_stack.push(t);
-            },
-
-            // If expression list is empty, empty stacks onto main stack
-            Token::None => { 
-                loop {
-                    let token = match calc_mem.aux_stack.pop() {
-                        Some(t) => t,
-                        None => { break; }
-                    };
-                    calc_mem.op_stack.push(token);
-                }
-                loop {
-                    let token = match calc_mem.op_stack.pop() {
-                        Some(t) => t,
-                        None => { break; }
-                    };
-                    calc_mem.main_stack.push(token);
-                }
-                break;
-            },
+            Token::None => unimplemented!(),
         };
     };
+
+    loop {
+        let token = match calc_mem.aux_stack.pop() {
+            Some(t) => t,
+            None => { break; }
+        };
+        calc_mem.op_stack.push(token);
+    }
+    loop {
+        let token = match calc_mem.op_stack.pop() {
+            Some(t) => t,
+            None => { break; }
+        };
+        calc_mem.main_stack.push(token);
+    }
+
     calc_mem.main_stack
 }
 
@@ -214,16 +225,14 @@ fn eval_postfix<'a>(mut expr: &mut Vec<Token>) -> Result<f64, &'a str> {
 
     // Perform appropriate operation
     let ans = match op {
-        Token::TermOp('+') => a + b,
-        Token::TermOp('-') => a - b,
-        Token::TermOp(_) => { return Err("Invalid Token"); }
-        Token::ProdOp('*') => a * b,
-        Token::ProdOp('/') => {
+        Token::Operator(Operator::Add) => a + b,
+        Token::Operator(Operator::Sub) => a - b,
+        Token::Operator(Operator::Mul) => a * b,
+        Token::Operator(Operator::Div) => {
             if b == 0.0 { return Err("Undefined: Division by zero"); }
             a / b
         },
-        Token::ProdOp(_) => { return Err("Invalid Token"); }
-        _ => 0.0  // Compiler complained without this even though it's covered in the base case
+        _ => unimplemented!(),
     };
 
     Ok(ans)
@@ -251,49 +260,57 @@ mod unit_tests {
     fn eval_postfix_test() {
 
         // 1 + 1 = 2
-        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('+')];
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::Operator(Operator::Add)];
         assert_eq!(Ok(2.0),eval_postfix(&mut expr));
 
         // 1 - 1 = 0
-        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('-')];
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::Operator(Operator::Sub)];
         assert_eq!(Ok(0.0),eval_postfix(&mut expr));
 
+        // 2 - 1 = 1
+        let mut expr = vec![Token::Number(1.), Token::Number(2.), Token::Operator(Operator::Sub)];
+        assert_eq!(Ok(1.0),eval_postfix(&mut expr));
+
+        // 1 - 2 = -1
+        let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::Operator(Operator::Sub)];
+        assert_eq!(Ok(-1.0),eval_postfix(&mut expr));
+
         // 1 * 1 = 1
-        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::ProdOp('*')];
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::Operator(Operator::Mul)];
         assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
         // 2 * 1 = 2
-        let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::ProdOp('*')];
+        let mut expr = vec![Token::Number(2.), Token::Number(1.), Token::Operator(Operator::Mul)];
         assert_eq!(Ok(2.0),eval_postfix(&mut expr));
 
         // 2 * 0 = 0
-        let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::ProdOp('*')];
+        let mut expr = vec![Token::Number(2.), Token::Number(0.), Token::Operator(Operator::Mul)];
         assert_eq!(Ok(0.0),eval_postfix(&mut expr));
 
         // 1 / 1 = 1
-        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::ProdOp('/')];
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::Operator(Operator::Div)];
         assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
         // 2 / 2 = 1
-        let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::ProdOp('/')];
+        let mut expr = vec![Token::Number(2.), Token::Number(2.), Token::Operator(Operator::Div)];
         assert_eq!(Ok(1.0),eval_postfix(&mut expr));
 
         // 2 / 1 = 2
-        let mut expr = vec![Token::Number(1.), Token::Number(2.), Token::ProdOp('/')];
+        let mut expr = vec![Token::Number(1.), Token::Number(2.), Token::Operator(Operator::Div)];
         assert_eq!(Ok(2.0),eval_postfix(&mut expr));
 
         // 2 / 0 = Err
-        let mut expr = vec![Token::Number(0.), Token::Number(2.), Token::ProdOp('/')];
+        let mut expr = vec![Token::Number(0.), Token::Number(2.), Token::Operator(Operator::Div)];
         let ans = eval_postfix(&mut expr);
         assert_matches!(ans, Err(_));
 
         // 1 * = Err
-        let mut expr = vec![Token::Number(1.), Token::ProdOp('*')];
+        let mut expr = vec![Token::Number(1.), Token::Operator(Operator::Mul)];
         let ans = eval_postfix(&mut expr);
         assert_matches!(ans, Err(_));
 
         // 1 + 1 + 1 = 3
-        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::TermOp('+'), Token::Number(1.), Token::TermOp('+')];
+        let mut expr = vec![Token::Number(1.), Token::Number(1.), Token::Operator(Operator::Add), Token::Number(1.), Token::Operator(Operator::Add)];
         assert_eq!(Ok(3.0),eval_postfix(&mut expr));
 
         // Test forms
@@ -302,8 +319,8 @@ mod unit_tests {
             Token::Number(4.),
             Token::Number(2.),
             Token::Number(3.),
-            Token::ProdOp('*'),
-            Token::TermOp('+')
+            Token::Operator(Operator::Mul),
+            Token::Operator(Operator::Add)
         ];
         assert_eq!(Ok(10.0),eval_postfix(&mut expr));
 
@@ -312,8 +329,8 @@ mod unit_tests {
             Token::Number(4.),
             Token::Number(3.),
             Token::Number(2.),
-            Token::ProdOp('*'),
-            Token::TermOp('+')
+            Token::Operator(Operator::Mul),
+            Token::Operator(Operator::Add)
         ];
         assert_eq!(Ok(10.0),eval_postfix(&mut expr));
 
@@ -321,9 +338,9 @@ mod unit_tests {
         let mut expr = vec![
             Token::Number(2.),
             Token::Number(3.),
-            Token::ProdOp('*'),
+            Token::Operator(Operator::Mul),
             Token::Number(4.),
-            Token::TermOp('+')
+            Token::Operator(Operator::Add)
         ];
         assert_eq!(Ok(10.0),eval_postfix(&mut expr));
 
@@ -331,9 +348,9 @@ mod unit_tests {
         let mut expr = vec![
             Token::Number(3.),
             Token::Number(2.),
-            Token::ProdOp('*'),
+            Token::Operator(Operator::Mul),
             Token::Number(4.),
-            Token::TermOp('+')
+            Token::Operator(Operator::Add)
         ];
         assert_eq!(Ok(10.0),eval_postfix(&mut expr));
     }

@@ -8,7 +8,7 @@ The objective of this project is to serve as a valuable learning experience in t
 
 - [X] Implement evaluation
   - [X] Fix issue [#1](/../../issues/1)
-- [ ] Implement parentheses parsing
-- [ ] Implement basic algebraic operators
-  - [ ] Negative sign
-  - [ ] Integer power
+- ~~[ ] Implement parentheses parsing~~
+- ~~[ ] Implement basic algebraic operators~~
+  - ~~[ ] Negative sign~~
+  - ~~[ ] Integer power~~
